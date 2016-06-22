@@ -4,9 +4,22 @@ import (
         "log"
 	"encoding/hex"
         "github.com/tarm/serial"
+	"os/exec"
+	"fmt"
 )
 
 func main() {
+
+
+	for i:=0;i<10;i++ {
+		out, err := exec.Command("/bin/sh", "-c", "sudo /home/pi/work/Adafruit_Python_DHT/examples/AdafruitDHT.py 2302 4").Output()
+		log.Printf("%s %s", out, err)
+		var temperature float32
+		var humidity float32
+		fmt.Sscanf(string(out), "Temp=%f*  Humidity=%f%", &temperature, &humidity)
+		log.Printf("%f %f", temperature, humidity)
+	}
+
         c := &serial.Config{Name: "/dev/ttyUSB0", Baud: 9600}
         s, err := serial.OpenPort(c)
         if err != nil {
@@ -65,8 +78,8 @@ func main() {
 		//log.Printf("FINAL")
 		log.Printf(hex.Dump(data))
 
-		log.Printf("%d %d %d", len(data), int(data[4]) << 8 | int(data[5]), int(data[6]) << 8 |int(data[7]))
-                log.Printf("%d %d", int(data[10]) << 8 | int(data[11]), int(data[12]) << 8 |int(data[13]))
+		log.Printf("%d %d %d %d", len(data), int(data[4]) << 8 | int(data[5]), int(data[6]) << 8 |int(data[7]), int(data[8]) << 8 | int(data[9]))
+                //log.Printf("%d %d", int(data[10]) << 8 | int(data[11]), int(data[12]) << 8 |int(data[13]))
 
 	}
 }
