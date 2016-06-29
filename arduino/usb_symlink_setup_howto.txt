@@ -1,0 +1,38 @@
+lsusb
+
+pms5003
+
+Bus 001 Device 005: ID 0403:6001 Future Technology Devices International, Ltd FT232 USB-Serial (UART) IC
+
+pi@raspberrypi:~ $ udevadm info -a -n /dev/ttyUSB0 | grep '{serial}' | head -n1
+    ATTRS{serial}=="3f980000.usb"
+Jun 25 01:53:14 raspberrypi kernel: [    5.522513] usbserial: USB Serial support registered for FTDI USB Serial Device
+Jun 25 01:53:14 raspberrypi kernel: [    5.523041] usb 1-1.2.1: Detected FT232RL
+Jun 25 01:53:14 raspberrypi kernel: [    5.524939] usb 1-1.2.1: FTDI USB Serial Device converter now attached to ttyUSB0
+
+sds018
+Bus 001 Device 007: ID 1a86:7523 QinHeng Electronics HL-340 USB-Serial adapter
+
+pi@raspberrypi:~ $ udevadm info -a -n /dev/ttyUSB1 | grep '{serial}' | head -n1
+    ATTRS{serial}=="0001"
+
+Jun 25 01:53:14 raspberrypi kernel: [    6.620890] usbcore: registered new interface driver ch341
+Jun 25 01:53:14 raspberrypi kernel: [    6.620951] usbserial: USB Serial support registered for ch341-uart
+Jun 25 01:53:14 raspberrypi kernel: [    6.624935] usb 1-1.2.4: ch341-uart converter now attached to ttyUSB1
+
+
+arduino
+Bus 001 Device 006: ID 10c4:ea60 Cygnal Integrated Products, Inc. CP210x UART Bridge / myAVR mySmartUSB light
+pi@raspberrypi:~ $ udevadm info -a -n /dev/ttyUSB2 | grep '{serial}' | head -n1
+    ATTRS{serial}=="AH03B2GN"
+Jun 25 01:53:14 raspberrypi kernel: [    6.662123] usbcore: registered new interface driver cp210x
+Jun 25 01:53:14 raspberrypi kernel: [    6.662185] usbserial: USB Serial support registered for cp210x
+Jun 25 01:53:14 raspberrypi kernel: [    6.662540] usb 1-1.2.2: cp210x converter now attached to ttyUSB2
+
+
+
+added following to /etc/udev/rules.d
+98-usb-serial.rules
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", ATTRS{serial}=="3f980000.usb", SYMLINK+="pms5003"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", ATTRS{serial}=="0001", SYMLINK+="sds018"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="AH03B2GN", SYMLINK+="dht22"
