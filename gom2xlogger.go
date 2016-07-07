@@ -23,7 +23,7 @@ type pms5003Data struct {
 }
 
 func readPmsData() *pms5003Data {
-	c := &serial.Config{Name: "/dev/pms5003", Baud: 9600}
+	c := &serial.Config{Name: "/dev/pms5003", Baud: 9600, ReadTimeout: time.Second * 10}
 	s, err := serial.OpenPort(c)
 	if err != nil {
 		log.Println(err)
@@ -85,7 +85,7 @@ type sds018Data struct {
 }
 
 func readSdsData() *sds018Data {
-	c := &serial.Config{Name: "/dev/sds018", Baud: 9600}
+	c := &serial.Config{Name: "/dev/sds018", Baud: 9600, ReadTimeout: time.Second * 10}
 	s, err := serial.OpenPort(c)
 	if err != nil {
 		log.Fatal(err)
@@ -119,7 +119,7 @@ type dht22Data struct {
 }
 
 func readDhtData() *dht22Data {
-	c := &serial.Config{Name: "/dev/dht22", Baud: 9600}
+	c := &serial.Config{Name: "/dev/dht22", Baud: 9600, ReadTimeout: time.Second * 10}
 	s, err := serial.OpenPort(c)
 	if err != nil {
 		log.Println(err)
