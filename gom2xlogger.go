@@ -2,8 +2,12 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -149,8 +153,75 @@ func readDhtData() *dht22Data {
 	return data
 }
 
+// JSONValue exists for json marshalling
+type JSONValue struct {
+	Timestamp time.Time `json:"timestamp"`
+	Value     float32   `json:"value"`
+}
+
+// JSONValues exists for json marshalling
+type JSONValues struct {
+	Pms5003pm1  []JSONValue `json:"PMS5003_PM1,omitempty"`
+	Pms5003pm25 []JSONValue `json:"PMS5003_PM25,omitempty"`
+	Pms5003pm10 []JSONValue `json:"PMS5003_PM10,omitempty"`
+	Sds018pm25  []JSONValue `json:"SDS018_PM25,omitempty"`
+	Sds018pm10  []JSONValue `json:"SDS018_PM10,omitempty"`
+	Dht22Temp   []JSONValue `json:"DHT22_Temperature,omitempty"`
+	Dht22Humi   []JSONValue `json:"DHT22_Humidity,omitempty"`
+}
+
+// JSONWrapper exists for json marshalling
+type JSONWrapper struct {
+	Values JSONValues `json:"values"`
+}
+
+func constructJSON(pmsData *pms5003Data, sdsData *sds018Data, dhtData *dht22Data) string {
+
+	jsonPackage := &JSONWrapper{
+		Values: JSONValues{},
+	}
+
+	if pmsData != nil {
+		jsonPackage.Values.Pms5003pm1 = []JSONValue{
+			JSONValue{Timestamp: pmsData.timestamp, Value: float32(pmsData.pm1)},
+		}
+		jsonPackage.Values.Pms5003pm25 = []JSONValue{
+			JSONValue{Timestamp: pmsData.timestamp, Value: float32(pmsData.pm25)},
+		}
+		jsonPackage.Values.Pms5003pm10 = []JSONValue{
+			JSONValue{Timestamp: pmsData.timestamp, Value: float32(pmsData.pm10)},
+		}
+	}
+
+	if sdsData != nil {
+		jsonPackage.Values.Sds018pm25 = []JSONValue{
+			JSONValue{Timestamp: sdsData.timestamp, Value: sdsData.pm25},
+		}
+		jsonPackage.Values.Sds018pm10 = []JSONValue{
+			JSONValue{Timestamp: sdsData.timestamp, Value: sdsData.pm10},
+		}
+	}
+
+	if dhtData != nil {
+		jsonPackage.Values.Dht22Temp = []JSONValue{
+			JSONValue{Timestamp: dhtData.timestamp, Value: dhtData.temperature},
+		}
+		jsonPackage.Values.Dht22Humi = []JSONValue{
+			JSONValue{Timestamp: dhtData.timestamp, Value: dhtData.humidity},
+		}
+	}
+
+	result, err := json.Marshal(jsonPackage)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return string(result)
+}
+
 func main() {
 
+	// Read data
 	var pmsData *pms5003Data
 	var sdsData *sds018Data
 	var dhtData *dht22Data
@@ -171,4 +242,26 @@ func main() {
 	}()
 
 	wg.Wait()
+	if pmsData == nil && sdsData == nil && dhtData == nil {
+		log.Fatal("Failed to read any data")
+	}
+
+	m2xKey, found := os.LookupEnv("XM2XKEY")
+	if !found {
+		log.Fatal("Environment variable X-M2X-KEY not found")
+	}
+	url := "http://api-m2x.att.com/v2/devices/4f62aee459c385ac304f53bc16a26bad/updates"
+
+	jsonBody := constructJSON(pmsData, sdsData, dhtData)
+	log.Println(jsonBody)
+	req, err := http.NewRequest("POST", url, strings.NewReader(jsonBody))
+	req.Header.Set("X-M2X-KEY", m2xKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
 }
