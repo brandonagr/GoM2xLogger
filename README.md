@@ -1,7 +1,8 @@
 # GoM2xLogger
-Log air quality data to the M2X service, written in Go
+Log air quality data to the M2X service, written in Go. 
 
 Just need to go build this and then edit cron to auto run this every X minutes, here I'm using 4 minutes to stay under the 100k values/month free m2x account limit
+  XM2XDEVICE=XXXXXXXXXXXXXXXXXXX
   XM2XKEY=XXXXXXXXXXXXXXXXXXX
   */4 * * * * /home/pi/work/src/github.com/brandonagr/gom2xlogger/gom2xlogger >> /var/log/gom2xlogger.log 2>&1
   30 1 * * 7 /sbin/shutdown -r now
@@ -21,8 +22,8 @@ To go from a fresh install of Raspian Jessie Lite
 
   sudo nano /etc/wpa_supplicant/wpa_supplicant.conf 
   network={
-  	ssid="DMS Member"
-  	psk="dms--109238"
+  	ssid="..."
+  	psk="..."
   }
 
   sudo reboot
@@ -48,6 +49,7 @@ To go from a fresh install of Raspian Jessie Lite
 ## Compile Adafruit DHT library
 This is a python / c library, and we just need the c part to interface with using cgo instead of python
 
-  export LD_LIBRARY_PATH=/home/pi
   git clone https://github.com/adafruit/Adafruit_Python_DHT.git
-  gcc Adafruit_Python_DHT/source/Raspberry_Pi_2/pi_2_dht_read.c Adafruit_Python_DHT/source/Raspberry_Pi_2/pi_2_mmio.c Adafruit_Python_DHT/source/common_dht_read.c -std=gnu99 -shared -o libdht.so
+  cd Adafruit_Python_DHT/source
+  gcc Raspberry_Pi_2/pi_2_dht_read.c Raspberry_Pi_2/pi_2_mmio.c common_dht_read.c -std=gnu99 -shared -o libdht.so
+  sudo cp libdht.so /usr/lib/libdht.so
