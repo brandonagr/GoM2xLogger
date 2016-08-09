@@ -1,26 +1,25 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
 	"time"
-	"math"
 
-	"github.com/tarm/serial"
 	"github.com/cocoonlife/goalsa"
+	"github.com/tarm/serial"
 )
 
 // #cgo LDFLAGS: -ldht
 // #include "/home/pi/Adafruit_Python_DHT/source/Raspberry_Pi_2/pi_2_dht_read.h"
 import "C"
 
-// Data retrieved from SDS 018 air quality sensor
+// Data retrieved from SDS 021 air quality sensor
 type sds021Data struct {
 	pm25      float32
 	pm10      float32
@@ -36,15 +35,15 @@ func readSdsData(averageOver time.Duration) *sds021Data {
 	}
 	defer s.Close()
 
+	buf := make([]byte, 128)
+
 	// discard first reading
 	_, err = s.Read(buf)
 
 	var accumulator sds021Data
-	count := 0.0
-
-	buf := make([]byte, 128)
+	count := int64(0.0)
 	startTime := time.Now()
-	for (time.Now() - startTime) < averageOver {
+	for time.Now().Sub(startTime) < averageOver {
 		_, err = s.Read(buf)
 		if err != nil {
 			log.Print(err)
@@ -56,13 +55,13 @@ func readSdsData(averageOver time.Duration) *sds021Data {
 		count += 1.0
 	}
 
-	data := &sds018Data{
-		pm25:      accumulator.pm25 / count,
-		pm10:      accumulator.pm10 / count
+	data := &sds021Data{
+		pm25:      accumulator.pm25 / float32(count),
+		pm10:      accumulator.pm10 / float32(count),
 		timestamp: time.Now(),
 	}
 
-	log.Printf("SDS %v %v %v", data.pm25, data.pm10, data.timestamp)
+	log.Printf("SDS %v %v %v over %v samples", data.pm25, data.pm10, data.timestamp, count)
 
 	return data
 }
@@ -84,9 +83,9 @@ func readDhtData() *dht22Data {
 	C.pi_2_dht_read(22, 4, &humidity, &temperature)
 
 	data := &dht22Data{
-		temperature: ((float32)temperature) * 1.8 + 32.0, // C to F
-		humidity: (float32)humidity,
-		timestamp: time.Now(),
+		temperature: float32(temperature)*1.8 + 32.0, // C to F
+		humidity:    float32(humidity),
+		timestamp:   time.Now(),
 	}
 
 	log.Printf("DHT %v %v %v", data.temperature, data.humidity, data.timestamp)
@@ -95,13 +94,13 @@ func readDhtData() *dht22Data {
 }
 
 type soundData struct {
-	decibels float32
-	timestamp   time.Time
+	decibels  float32
+	timestamp time.Time
 }
 
 func readSoundData(averageOver time.Duration) *soundData {
 
-	c, err := alsa.NewCaptureDevice("hw:1,0", 1, alsa.FormatS16LE, 44100, a$
+	c, err := alsa.NewCaptureDevice("hw:1,0", 1, alsa.FormatS16LE, 44100, alsa.BufferParams{})
 	if err != nil {
 		log.Print(err)
 		return nil
@@ -112,27 +111,38 @@ func readSoundData(averageOver time.Duration) *soundData {
 
 	var averageDb float64
 	averageDb = 0.0
-	var count int64
+	var sampleCount int64
+	sampleCount = 0
 
 	startTime := time.Now()
-	for (time.Now() - startTime) < averageOver {
+	for time.Now().Sub(startTime) < averageOver {
 		count, err := c.Read(buffer)
+		if err != nil {
+			log.Print(err)
+			return nil
+		}
 
 		if count == 0 {
 			continue
 		}
 
 		for _, value := range buffer[:count] {
-			averageDb += 20 * math.Log10(math.Pow((float64)value, 2.0))
+
+			tempValue := math.Pow(float64(value), 2.0)
+			if tempValue <= 1.0 {
+				continue
+			}
+			averageDb += 20 * math.Log10(tempValue)
+			sampleCount++
 		}
 	}
 
 	data := &soundData{
-		decibels: averageDb / (float64)count,
+		decibels:  float32(averageDb/float64(sampleCount)) - float32(20.0),
 		timestamp: time.Now(),
 	}
 
-	log.Printf("Sound %v %v", data.decibels, data.timestamp)
+	log.Printf("Sound %v %v over %v samples", data.decibels, data.timestamp, sampleCount)
 
 	return data
 }
@@ -145,11 +155,11 @@ type JSONValue struct {
 
 // JSONValues exists for json marshalling
 type JSONValues struct {
-	Sds021pm25  []JSONValue `json:"SDS021_PM25,omitempty"`
-	Sds021pm10  []JSONValue `json:"SDS021_PM10,omitempty"`
-	Dht22Temp   []JSONValue `json:"DHT22_Temperature,omitempty"`
-	Dht22Humi   []JSONValue `json:"DHT22_Humidity,omitempty"`
-	Decibels  []JSONValue `json:"Decibels,omitempty"`
+	Sds021pm25 []JSONValue `json:"SDS021_PM25,omitempty"`
+	Sds021pm10 []JSONValue `json:"SDS021_PM10,omitempty"`
+	Dht22Temp  []JSONValue `json:"DHT22_Temperature,omitempty"`
+	Dht22Humi  []JSONValue `json:"DHT22_Humidity,omitempty"`
+	Decibels   []JSONValue `json:"Decibels,omitempty"`
 }
 
 // JSONWrapper exists for json marshalling
@@ -164,10 +174,10 @@ func constructJSON(sdsData *sds021Data, dhtData *dht22Data, sound *soundData) st
 	}
 
 	if sdsData != nil {
-		jsonPackage.Values.Sds018pm25 = []JSONValue{
+		jsonPackage.Values.Sds021pm25 = []JSONValue{
 			JSONValue{Timestamp: sdsData.timestamp, Value: sdsData.pm25},
 		}
-		jsonPackage.Values.Sds018pm10 = []JSONValue{
+		jsonPackage.Values.Sds021pm10 = []JSONValue{
 			JSONValue{Timestamp: sdsData.timestamp, Value: sdsData.pm10},
 		}
 	}
@@ -183,7 +193,7 @@ func constructJSON(sdsData *sds021Data, dhtData *dht22Data, sound *soundData) st
 
 	if sound != nil {
 		jsonPackage.Values.Decibels = []JSONValue{
-			JSONValue{TimeStamp: sound.timeStamp, Value: sound.decibels}
+			JSONValue{Timestamp: sound.timestamp, Value: sound.decibels},
 		}
 	}
 
@@ -197,10 +207,10 @@ func constructJSON(sdsData *sds021Data, dhtData *dht22Data, sound *soundData) st
 
 func main() {
 
-	averageOver := 5 * time.Second
+	averageOver := 3 * time.Minute
 
 	// Read data
-	var sdsData *sds018Data
+	var sdsData *sds021Data
 	var dhtData *dht22Data
 	var sound *soundData
 
@@ -208,7 +218,7 @@ func main() {
 	wg.Add(3)
 	go func() {
 		defer wg.Done()
-		pmsData = readSoundData(averageOver)
+		sound = readSoundData(averageOver)
 	}()
 	go func() {
 		defer wg.Done()
@@ -220,7 +230,7 @@ func main() {
 	}()
 
 	wg.Wait()
-	if pmsData == nil && sdsData == nil && dhtData == nil {
+	if sound == nil && sdsData == nil && dhtData == nil {
 		log.Fatal("Failed to read any data")
 	}
 
@@ -232,11 +242,14 @@ func main() {
 	if !found {
 		log.Fatal("Environment variable XM2XKEY not found")
 	}
-	url := fmt.Sprint("http://api-m2x.att.com/v2/devices/%s/updates", m2xDevice)
+	url := fmt.Sprintf("http://api-m2x.att.com/v2/devices/%s/updates", m2xDevice)
 
 	jsonBody := constructJSON(sdsData, dhtData, sound)
 	log.Println(jsonBody)
 	req, err := http.NewRequest("POST", url, strings.NewReader(jsonBody))
+	if err != nil {
+		log.Fatal(err)
+	}
 	req.Header.Set("X-M2X-KEY", m2xKey)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -247,3 +260,4 @@ func main() {
 	}
 	defer resp.Body.Close()
 }
+
