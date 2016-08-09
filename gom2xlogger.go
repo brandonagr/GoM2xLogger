@@ -10,100 +10,55 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"math"
 
 	"github.com/tarm/serial"
+	"github.com/cocoonlife/goalsa"
 )
 
-// Data retrieve from Plantower PMS 5003 air quality sensor
-type pms5003Data struct {
-	pm1       int
-	pm25      int
-	pm10      int
-	timestamp time.Time
-}
-
-func readPmsData() *pms5003Data {
-	c := &serial.Config{Name: "/dev/pms5003", Baud: 9600, ReadTimeout: time.Second * 10}
-	s, err := serial.OpenPort(c)
-	if err != nil {
-		log.Println(err)
-		return nil
-	}
-	defer s.Close()
-
-	buf := make([]byte, 128)
-	var serialData []byte
-
-	// wait until second frame
-	for i := 0; i < 2; i++ {
-		// could start reading in the middle of a frame, need to wait until we capture the beginning of a data frame
-		var n int
-		for len(buf) == 0 && buf[0] != 0x42 {
-			n, err = s.Read(buf)
-			if err != nil {
-				log.Println(err)
-				return nil
-			}
-			//log.Printf(hex.Dump(buf[:n]))
-		}
-
-		serialData = make([]byte, n)
-		copy(serialData, buf[:n])
-
-		//log.Printf("%d", len(data))
-
-		// need to capture a full 32 bytes
-		for len(serialData) < 32 {
-			n, err := s.Read(buf)
-			if err != nil {
-				log.Println(err)
-				return nil
-			}
-			serialData = append(serialData, buf[:n]...)
-		}
-	}
-
-	// log.Printf(hex.Dump(data))
-
-	data := &pms5003Data{
-		pm1:       int(serialData[4])<<8 | int(serialData[5]),
-		pm25:      int(serialData[6])<<8 | int(serialData[7]),
-		pm10:      int(serialData[8])<<8 | int(serialData[9]),
-		timestamp: time.Now(),
-	}
-
-	log.Printf("PMS %d %d %d %v", data.pm1, data.pm25, data.pm10, data.timestamp)
-
-	return data
-}
+// #cgo LDFLAGS: -ldht
+// #include "/home/pi/Adafruit_Python_DHT/source/Raspberry_Pi_2/pi_2_dht_read.h"
+import "C"
 
 // Data retrieved from SDS 018 air quality sensor
-type sds018Data struct {
+type sds021Data struct {
 	pm25      float32
 	pm10      float32
 	timestamp time.Time
 }
 
-func readSdsData() *sds018Data {
-	c := &serial.Config{Name: "/dev/sds018", Baud: 9600, ReadTimeout: time.Second * 10}
+func readSdsData(averageOver time.Duration) *sds021Data {
+	c := &serial.Config{Name: "/dev/ttyUSB0", Baud: 9600, ReadTimeout: time.Second * 10}
 	s, err := serial.OpenPort(c)
 	if err != nil {
-		log.Fatal(err)
+		log.Print(err)
+		return nil
 	}
 	defer s.Close()
 
-	buf := make([]byte, 128)
+	// discard first reading
+	_, err = s.Read(buf)
 
-	for i := 0; i < 2; i++ {
+	var accumulator sds021Data
+	count := 0.0
+
+	buf := make([]byte, 128)
+	startTime := time.Now()
+	for (time.Now() - startTime) < averageOver {
 		_, err = s.Read(buf)
 		if err != nil {
-			log.Fatal(err)
+			log.Print(err)
+			return nil
 		}
+
+		accumulator.pm25 += float32(int(buf[3])<<8|int(buf[2])) / 10.0
+		accumulator.pm10 += float32(int(buf[5])<<8|int(buf[4])) / 10.0
+		count += 1.0
 	}
 
 	data := &sds018Data{
-		pm25:      float32(int(buf[3])<<8|int(buf[2])) / 10.0,
-		pm10:      float32(int(buf[5])<<8|int(buf[4])) / 10.0,
+		pm25:      accumulator.pm25 / count,
+		pm10:      accumulator.pm10 / count
 		timestamp: time.Now(),
 	}
 
@@ -119,36 +74,65 @@ type dht22Data struct {
 }
 
 func readDhtData() *dht22Data {
-	c := &serial.Config{Name: "/dev/dht22", Baud: 9600, ReadTimeout: time.Second * 10}
-	s, err := serial.OpenPort(c)
-	if err != nil {
-		log.Println(err)
-		return nil
-	}
-	defer s.Close()
 
-	reader := bufio.NewReader(s)
+	var humidity C.float
+	var temperature C.float
 
-	// use second line, since first might have been truncated
-	var stringData string
-	for i := 0; i < 2; i++ {
-		stringData, err = reader.ReadString('\n')
-		if err != nil {
-			log.Println(err)
-			return nil
-		}
-	}
+	// discard first reading
+	C.pi_2_dht_read(22, 4, &humidity, &temperature)
+
+	C.pi_2_dht_read(22, 4, &humidity, &temperature)
 
 	data := &dht22Data{
+		temperature: ((float32)temperature) * 1.8 + 32.0, // C to F
+		humidity: (float32)humidity,
 		timestamp: time.Now(),
-	}
-	n, err := fmt.Sscanf(stringData, "%f %f", &data.temperature, &data.humidity)
-	if err != nil || n != 2 {
-		log.Printf("Unable to parse %s", stringData)
-		return nil
 	}
 
 	log.Printf("DHT %v %v %v", data.temperature, data.humidity, data.timestamp)
+
+	return data
+}
+
+type soundData struct {
+	decibels float32
+	timestamp   time.Time
+}
+
+func readSoundData(averageOver time.Duration) *soundData {
+
+	c, err := alsa.NewCaptureDevice("hw:1,0", 1, alsa.FormatS16LE, 44100, a$
+	if err != nil {
+		log.Print(err)
+		return nil
+	}
+	defer c.Close()
+
+	buffer := make([]int16, 8000)
+
+	var averageDb float64
+	averageDb = 0.0
+	var count int64
+
+	startTime := time.Now()
+	for (time.Now() - startTime) < averageOver {
+		count, err := c.Read(buffer)
+
+		if count == 0 {
+			continue
+		}
+
+		for _, value := range buffer[:count] {
+			averageDb += 20 * math.Log10(math.Pow((float64)value, 2.0))
+		}
+	}
+
+	data := &soundData{
+		decibels: averageDb / (float64)count,
+		timestamp: time.Now(),
+	}
+
+	log.Printf("Sound %v %v", data.decibels, data.timestamp)
 
 	return data
 }
@@ -161,13 +145,11 @@ type JSONValue struct {
 
 // JSONValues exists for json marshalling
 type JSONValues struct {
-	Pms5003pm1  []JSONValue `json:"PMS5003_PM1,omitempty"`
-	Pms5003pm25 []JSONValue `json:"PMS5003_PM25,omitempty"`
-	Pms5003pm10 []JSONValue `json:"PMS5003_PM10,omitempty"`
-	Sds018pm25  []JSONValue `json:"SDS018_PM25,omitempty"`
-	Sds018pm10  []JSONValue `json:"SDS018_PM10,omitempty"`
+	Sds021pm25  []JSONValue `json:"SDS021_PM25,omitempty"`
+	Sds021pm10  []JSONValue `json:"SDS021_PM10,omitempty"`
 	Dht22Temp   []JSONValue `json:"DHT22_Temperature,omitempty"`
 	Dht22Humi   []JSONValue `json:"DHT22_Humidity,omitempty"`
+	Decibels  []JSONValue `json:"Decibels,omitempty"`
 }
 
 // JSONWrapper exists for json marshalling
@@ -175,22 +157,10 @@ type JSONWrapper struct {
 	Values JSONValues `json:"values"`
 }
 
-func constructJSON(pmsData *pms5003Data, sdsData *sds018Data, dhtData *dht22Data) string {
+func constructJSON(sdsData *sds021Data, dhtData *dht22Data, sound *soundData) string {
 
 	jsonPackage := &JSONWrapper{
 		Values: JSONValues{},
-	}
-
-	if pmsData != nil {
-		jsonPackage.Values.Pms5003pm1 = []JSONValue{
-			JSONValue{Timestamp: pmsData.timestamp, Value: float32(pmsData.pm1)},
-		}
-		jsonPackage.Values.Pms5003pm25 = []JSONValue{
-			JSONValue{Timestamp: pmsData.timestamp, Value: float32(pmsData.pm25)},
-		}
-		jsonPackage.Values.Pms5003pm10 = []JSONValue{
-			JSONValue{Timestamp: pmsData.timestamp, Value: float32(pmsData.pm10)},
-		}
 	}
 
 	if sdsData != nil {
@@ -211,6 +181,12 @@ func constructJSON(pmsData *pms5003Data, sdsData *sds018Data, dhtData *dht22Data
 		}
 	}
 
+	if sound != nil {
+		jsonPackage.Values.Decibels = []JSONValue{
+			JSONValue{TimeStamp: sound.timeStamp, Value: sound.decibels}
+		}
+	}
+
 	result, err := json.Marshal(jsonPackage)
 	if err != nil {
 		log.Fatal(err)
@@ -221,20 +197,22 @@ func constructJSON(pmsData *pms5003Data, sdsData *sds018Data, dhtData *dht22Data
 
 func main() {
 
+	averageOver := 5 * time.Second
+
 	// Read data
-	var pmsData *pms5003Data
 	var sdsData *sds018Data
 	var dhtData *dht22Data
+	var sound *soundData
 
 	var wg sync.WaitGroup
 	wg.Add(3)
 	go func() {
 		defer wg.Done()
-		pmsData = readPmsData()
+		pmsData = readSoundData(averageOver)
 	}()
 	go func() {
 		defer wg.Done()
-		sdsData = readSdsData()
+		sdsData = readSdsData(averageOver)
 	}()
 	go func() {
 		defer wg.Done()
@@ -246,13 +224,17 @@ func main() {
 		log.Fatal("Failed to read any data")
 	}
 
+	m2xDevice, found := os.LookupEnv("XM2XDEVICE")
+	if !found {
+		log.Fatal("Environment variable XM2XDEVICE not found")
+	}
 	m2xKey, found := os.LookupEnv("XM2XKEY")
 	if !found {
-		log.Fatal("Environment variable X-M2X-KEY not found")
+		log.Fatal("Environment variable XM2XKEY not found")
 	}
-	url := "http://api-m2x.att.com/v2/devices/4f62aee459c385ac304f53bc16a26bad/updates"
+	url := fmt.Sprint("http://api-m2x.att.com/v2/devices/%s/updates", m2xDevice)
 
-	jsonBody := constructJSON(pmsData, sdsData, dhtData)
+	jsonBody := constructJSON(sdsData, dhtData, sound)
 	log.Println(jsonBody)
 	req, err := http.NewRequest("POST", url, strings.NewReader(jsonBody))
 	req.Header.Set("X-M2X-KEY", m2xKey)
