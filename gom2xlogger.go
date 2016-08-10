@@ -80,7 +80,11 @@ func readDhtData() *dht22Data {
 	// discard first reading
 	C.pi_2_dht_read(22, 4, &humidity, &temperature)
 
-	C.pi_2_dht_read(22, 4, &humidity, &temperature)
+	humidity = 0
+	temperature = 0
+	for temperature == 0 {
+		C.pi_2_dht_read(22, 4, &humidity, &temperature)
+	}
 
 	data := &dht22Data{
 		temperature: float32(temperature)*1.8 + 32.0, // C to F
@@ -129,10 +133,9 @@ func readSoundData(averageOver time.Duration) *soundData {
 		for _, value := range buffer[:count] {
 
 			tempValue := math.Pow(float64(value), 2.0)
-			if tempValue <= 1.0 {
-				continue
+			if tempValue > 1.0 {
+				averageDb += 20 * math.Log10(tempValue)
 			}
-			averageDb += 20 * math.Log10(tempValue)
 			sampleCount++
 		}
 	}
