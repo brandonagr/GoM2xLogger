@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cocoonlife/goalsa"
 	"github.com/tarm/serial"
 )
 
