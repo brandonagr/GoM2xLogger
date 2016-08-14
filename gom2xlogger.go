@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cocoonlife/goalsa"
 	"github.com/tarm/serial"
 )
 
@@ -111,12 +110,10 @@ func readSoundData(averageOver time.Duration) *soundData {
 	}
 	defer c.Close()
 
-	buffer := make([]int16, 8000)
+	buffer := make([]int16, 16000)
 
-	var averageDb float64
-	averageDb = 0.0
-	var sampleCount int64
-	sampleCount = 0
+	amplitudeSumOfSquares := float64(0.0)
+	sampleCount := float64(0.0)
 
 	startTime := time.Now()
 	for time.Now().Sub(startTime) < averageOver {
@@ -131,17 +128,16 @@ func readSoundData(averageOver time.Duration) *soundData {
 		}
 
 		for _, value := range buffer[:count] {
-
-			tempValue := math.Pow(float64(value), 2.0)
-			if tempValue > 1.0 {
-				averageDb += 20 * math.Log10(tempValue)
-			}
+			amplitudeSumOfSquares += math.Pow(float64(value), 2.0)
 			sampleCount++
 		}
 	}
 
+	amplitudeRms := math.Sqrt(amplitudeSumOfSquares / sampleCount)
+	averageDb := 20.0*math.Log10(amplitudeRms/32767) + 90.0 // 90 is arbitrary calibration value
+
 	data := &soundData{
-		decibels:  float32(averageDb/float64(sampleCount)) - float32(20.0),
+		decibels:  float32(averageDb),
 		timestamp: time.Now(),
 	}
 
@@ -263,4 +259,3 @@ func main() {
 	}
 	defer resp.Body.Close()
 }
-
